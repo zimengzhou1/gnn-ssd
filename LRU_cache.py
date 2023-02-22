@@ -43,7 +43,7 @@ def getCacheMiss(sampler, cacheSize):
   pbar = tqdm(total=sampleNum)
   for step, (batch_size, ids, adjs) in enumerate(sampler):
       for i in ids:
-          get_value(i)
+          get_value(int(i))
       pbar.update(1)
   pbar.close()
   
