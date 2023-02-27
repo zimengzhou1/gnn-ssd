@@ -15,53 +15,56 @@ from functools import lru_cache
 import random
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-__file__ = os.path.abspath('')
-print(__file__)
-path = "data"
-isExist = os.path.exists(path)
-if not isExist:
-   os.makedirs(path)
-path = osp.join(osp.realpath(__file__), 'data')
-print(path)
-dataset = OpenFlowDataset(path)
-data = dataset[0]
-
-print(data)
-
-sampleNum = 50000
-cacheSize = 200000
-
-print("Initializing sequential neighbor sampler")
-
 def getCacheMiss(sampler, cacheSize):
   @lru_cache(maxsize=cacheSize)
   def get_value(key):
-      global cacheMiss
-      cacheMiss +=1
+      return
 
   pbar = tqdm(total=sampleNum)
   for step, (batch_size, ids, adjs) in enumerate(sampler):
       for i in ids:
-          get_value(int(i))
+         get_value(int(i))
       pbar.update(1)
   pbar.close()
-  
-  return cacheMiss
+  info = get_value.cache_info()
 
-train_loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=data.edge_index[0][:sampleNum])
-cacheMiss = 0
-print("Cache miss for sequential: ", getCacheMiss(train_loader, cacheSize))
+  get_value.cache_clear()
+  return info
+
+def getHitRatio(info):
+    return info.hits / (info.hits + info.misses)
+
+if __name__ == '__main__':
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    __file__ = os.path.abspath('')
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
+
+    print("Loading dataset...")
+    dataset = OpenFlowDataset(path)
+    data = dataset[0]
+
+    # 10% cache size
+    cacheSize = 200000
+    sampleNum = 1000000
+
+    cacheSizes = [25000, 50000, 400000, 600000, 800000]
+
+    for size in cacheSizes:
+        # LRU
+        print("Initializing sequential neighbor sampler for size ", size)
+        train_loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=data.edge_index[0][:sampleNum])
+        cacheInfo = getCacheMiss(train_loader, size)
+        print(cacheInfo)
+        print("Cache hit ratio for sequential: ", getHitRatio(cacheInfo))
 
 
-print("Initializing random neighbor sampler")
-
-indices = torch.tensor(random.sample(range(len(data.edge_index[0])), sampleNum))
-indices = torch.tensor(indices)
-sampled_values = data.edge_index[0][indices]
-random_loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=sampled_values)
-cacheMiss = 0
-print("Cache miss for random: ", getCacheMiss(random_loader, cacheSize))
+        print("Initializing random neighbor sampler")
+        indices = torch.tensor(random.sample(range(len(data.edge_index[0])), sampleNum))
+        sampled_values = data.edge_index[0][indices]
+        random_loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=sampled_values)
+        cacheInfo = getCacheMiss(random_loader, size)
+        print(cacheInfo)
+        print("Cache hit ratio for sequential: ", getHitRatio(cacheInfo))
 
 
 
