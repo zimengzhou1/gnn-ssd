@@ -61,7 +61,6 @@ class MMAPNeighborSampler(torch.utils.data.DataLoader):
 
         self.sizes = sizes
         self.transform = transform
-        print(len(node_idx.view(-1).tolist()))
         if node_idx.dtype == torch.bool:
             node_idx = node_idx.nonzero(as_tuple=False).view(-1)
 
@@ -77,15 +76,15 @@ class MMAPNeighborSampler(torch.utils.data.DataLoader):
 
         adjs = []
         n_id = batch
-        # for size in self.sizes:
-        #     adj_t, n_id = sample_adj_mmap(self.indptr, self.indices, n_id, size, False)
-        #     e_id = adj_t.storage.value()
-        #     size = adj_t.sparse_sizes()[::-1]
+        for size in self.sizes:
+            adj_t, n_id = sample_adj_mmap(self.indptr, self.indices, n_id, size, False)
+            e_id = adj_t.storage.value()
+            size = adj_t.sparse_sizes()[::-1]
 
-        #     adjs.append(Adj(adj_t, e_id, size))
+            adjs.append(Adj(adj_t, e_id, size))
 
-        # adjs = adjs[0] if len(adjs) == 1 else adjs[::-1]
-        out = (batch_size, n_id, 1)
+        adjs = adjs[0] if len(adjs) == 1 else adjs[::-1]
+        out = (batch_size, n_id, adjs)
         out = self.transform(*out) if self.transform is not None else out
         return out
 

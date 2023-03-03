@@ -19,99 +19,101 @@ from lib.utils import *
 
 __file__ = os.path.abspath('')
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# Set environment and path
+os.environ['GINEX_NUM_THREADS'] = str(128)
 
 dataset_path = osp.join(osp.dirname(osp.realpath(__file__)), 'data', 'Reddit')
 dataset = Reddit(dataset_path)
 
-# Construct sparse formats
-print('Creating coo/csc/csr format of dataset...')
-num_nodes = dataset[0].num_nodes
-coo = dataset[0].edge_index.numpy()
-v = np.ones_like(coo[0])
-coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(num_nodes, num_nodes))
-csc = coo.tocsc()
-csr = coo.tocsr()
-print('Done!')
+# # Construct sparse formats
+# print('Creating coo/csc/csr format of dataset...')
+# num_nodes = dataset[0].num_nodes
+# coo = dataset[0].edge_index.numpy()
+# v = np.ones_like(coo[0])
+# coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(num_nodes, num_nodes))
+# csc = coo.tocsc()
+# csr = coo.tocsr()
+# print('Done!')
 
 
-# Save csc-formatted dataset
-indptr = csc.indptr.astype(np.int64)
-indices = csc.indices.astype(np.int64)
-features = dataset[0].x
-labels = dataset[0].y
+# # Save csc-formatted dataset
+# indptr = csc.indptr.astype(np.int64)
+# indices = csc.indices.astype(np.int64)
+# features = dataset[0].x
+# labels = dataset[0].y
 
-os.makedirs(dataset_path, exist_ok=True)
-indptr_path = os.path.join(dataset_path, 'indptr.dat')
-indices_path = os.path.join(dataset_path, 'indices.dat')
-features_path = os.path.join(dataset_path, 'features.dat')
-labels_path = os.path.join(dataset_path, 'labels.dat')
-conf_path = os.path.join(dataset_path, 'conf.json')
-split_idx_path = os.path.join(dataset_path, 'split_idx.pth')
+# os.makedirs(dataset_path, exist_ok=True)
+# indptr_path = os.path.join(dataset_path, 'indptr.dat')
+# indices_path = os.path.join(dataset_path, 'indices.dat')
+# features_path = os.path.join(dataset_path, 'features.dat')
+# labels_path = os.path.join(dataset_path, 'labels.dat')
+# conf_path = os.path.join(dataset_path, 'conf.json')
+# split_idx_path = os.path.join(dataset_path, 'split_idx.pth')
 
-print('Saving indptr...')
-indptr_mmap = np.memmap(indptr_path, mode='w+', shape=indptr.shape, dtype=indptr.dtype)
-indptr_mmap[:] = indptr[:]
-indptr_mmap.flush()
-print('Done!')
+# print('Saving indptr...')
+# indptr_mmap = np.memmap(indptr_path, mode='w+', shape=indptr.shape, dtype=indptr.dtype)
+# indptr_mmap[:] = indptr[:]
+# indptr_mmap.flush()
+# print('Done!')
 
-print('Saving indices...')
-indices_mmap = np.memmap(indices_path, mode='w+', shape=indices.shape, dtype=indices.dtype)
-indices_mmap[:] = indices[:]
-indices_mmap.flush()
-print('Done!')
+# print('Saving indices...')
+# indices_mmap = np.memmap(indices_path, mode='w+', shape=indices.shape, dtype=indices.dtype)
+# indices_mmap[:] = indices[:]
+# indices_mmap.flush()
+# print('Done!')
 
-print('Saving features...')
-features_mmap = np.memmap(features_path, mode='w+', shape=dataset[0].x.shape, dtype=np.float32)
-features_mmap[:] = features[:]
-features_mmap.flush()
-print('Done!')
+# print('Saving features...')
+# features_mmap = np.memmap(features_path, mode='w+', shape=dataset[0].x.shape, dtype=np.float32)
+# features_mmap[:] = features[:]
+# features_mmap.flush()
+# print('Done!')
 
-print('Saving labels...')
-labels = labels.type(torch.float32)
-labels_mmap = np.memmap(labels_path, mode='w+', shape=dataset[0].y.shape, dtype=np.float32)
-labels_mmap[:] = labels[:]
-labels_mmap.flush()
-print('Done!')
+# print('Saving labels...')
+# labels = labels.type(torch.float32)
+# labels_mmap = np.memmap(labels_path, mode='w+', shape=dataset[0].y.shape, dtype=np.float32)
+# labels_mmap[:] = labels[:]
+# labels_mmap.flush()
+# print('Done!')
 
-print('Making conf file...')
-mmap_config = dict()
-mmap_config['num_nodes'] = int(dataset[0].num_nodes)
-mmap_config['indptr_shape'] = tuple(indptr.shape)
-mmap_config['indptr_dtype'] = str(indptr.dtype)
-mmap_config['indices_shape'] = tuple(indices.shape)
-mmap_config['indices_dtype'] = str(indices.dtype)
-mmap_config['indices_shape'] = tuple(indices.shape)
-mmap_config['indices_dtype'] = str(indices.dtype)
-mmap_config['indices_shape'] = tuple(indices.shape)
-mmap_config['indices_dtype'] = str(indices.dtype)
-mmap_config['features_shape'] = tuple(features_mmap.shape)
-mmap_config['features_dtype'] = str(features_mmap.dtype)
-mmap_config['labels_shape'] = tuple(labels_mmap.shape)
-mmap_config['labels_dtype'] = str(labels_mmap.dtype)
-mmap_config['num_classes'] = int(dataset.num_classes)
-json.dump(mmap_config, open(conf_path, 'w'))
-print('Done!')
+# print('Making conf file...')
+# mmap_config = dict()
+# mmap_config['num_nodes'] = int(dataset[0].num_nodes)
+# mmap_config['indptr_shape'] = tuple(indptr.shape)
+# mmap_config['indptr_dtype'] = str(indptr.dtype)
+# mmap_config['indices_shape'] = tuple(indices.shape)
+# mmap_config['indices_dtype'] = str(indices.dtype)
+# mmap_config['indices_shape'] = tuple(indices.shape)
+# mmap_config['indices_dtype'] = str(indices.dtype)
+# mmap_config['indices_shape'] = tuple(indices.shape)
+# mmap_config['indices_dtype'] = str(indices.dtype)
+# mmap_config['features_shape'] = tuple(features_mmap.shape)
+# mmap_config['features_dtype'] = str(features_mmap.dtype)
+# mmap_config['labels_shape'] = tuple(labels_mmap.shape)
+# mmap_config['labels_dtype'] = str(labels_mmap.dtype)
+# mmap_config['num_classes'] = int(dataset.num_classes)
+# json.dump(mmap_config, open(conf_path, 'w'))
+# print('Done!')
 
-print('Saving split index...')
-splits = {'train': dataset[0].train_mask, 'test': dataset[0].test_mask, 'valid': dataset[0].val_mask}
-torch.save(splits, split_idx_path)
-print('Done!')
+# print('Saving split index...')
+# splits = {'train': dataset[0].train_mask, 'test': dataset[0].test_mask, 'valid': dataset[0].val_mask}
+# torch.save(splits, split_idx_path)
+# print('Done!')
 
-# Calculate and save score for neighbor cache construction
-print('Calculating score for neighbor cache construction...')
-score_path = os.path.join(dataset_path, 'nc_score.pth')
-csc_indptr_tensor = torch.from_numpy(csc.indptr.astype(np.int64))
-csr_indptr_tensor = torch.from_numpy(csr.indptr.astype(np.int64))
+# # Calculate and save score for neighbor cache construction
+# print('Calculating score for neighbor cache construction...')
+# score_path = os.path.join(dataset_path, 'nc_score.pth')
+# csc_indptr_tensor = torch.from_numpy(csc.indptr.astype(np.int64))
+# csr_indptr_tensor = torch.from_numpy(csr.indptr.astype(np.int64))
 
-eps = 0.00000001
-in_num_neighbors = (csc_indptr_tensor[1:] - csc_indptr_tensor[:-1]) + eps
-out_num_neighbors = (csr_indptr_tensor[1:] - csr_indptr_tensor[:-1]) + eps
-score = out_num_neighbors / in_num_neighbors
-print('Done!')
+# eps = 0.00000001
+# in_num_neighbors = (csc_indptr_tensor[1:] - csc_indptr_tensor[:-1]) + eps
+# out_num_neighbors = (csr_indptr_tensor[1:] - csr_indptr_tensor[:-1]) + eps
+# score = out_num_neighbors / in_num_neighbors
+# print('Done!')
 
-print('Saving score...')
-torch.save(score, score_path)
-print('Done!')
+# print('Saving score...')
+# torch.save(score, score_path)
+# print('Done!')
 
 def get_mmap_dataset(path='../data/Reddit'):
     indptr_path = os.path.join(path, 'indptr.dat')
@@ -127,7 +129,6 @@ def get_mmap_dataset(path='../data/Reddit'):
 
     indptr = np.fromfile(indptr_path, dtype=conf['indptr_dtype']).reshape(tuple(conf['indptr_shape']))
     indices = np.memmap(indices_path, mode='r', shape=tuple(conf['indices_shape']), dtype=conf['indices_dtype'])
-    print(indptr)
     features_shape = conf['features_shape']
     features = np.memmap(features_path, mode='r', shape=tuple(features_shape), dtype=conf['features_dtype'])
     labels = np.fromfile(labels_path, dtype=conf['labels_dtype'], count=conf['num_nodes']).reshape(tuple([conf['labels_shape'][0]]))
@@ -164,10 +165,6 @@ args = argparser.parse_args()
 
 indptr, indices, x, y, num_features, num_classes, num_nodes, train_idx, valid_idx, test_idx = get_mmap_dataset()
 
-print("train: ", sum(train_idx))
-print("val: ", sum(valid_idx))
-print("test: ", sum(test_idx))
-
 sizes = [int(size) for size in args.sizes.split(',')]
 train_loader = MMAPNeighborSampler(indptr, indices, node_idx=train_idx,
                                sizes=sizes, batch_size=args.batch_size,
@@ -189,14 +186,22 @@ class SAGE(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.convs.append(SAGEConv(in_channels, hidden_channels))
         self.convs.append(SAGEConv(hidden_channels, out_channels))
+        self.num_layers = 2
 
-    def forward(self, x, edge_index):
-        for i, conv in enumerate(self.convs):
-            x = conv(x, edge_index)
-            if i < len(self.convs) - 1:
-                x = x.relu_()
+    def forward(self, x, adjs):
+        # `train_loader` computes the k-hop neighborhood of a batch of nodes,
+        # and returns, for each layer, a bipartite graph object, holding the
+        # bipartite edges `edge_index`, the index `e_id` of the original edges,
+        # and the size/shape `size` of the bipartite graph.
+        # Target nodes are also included in the source nodes so that one can
+        # easily apply skip-connections or add self-loops.
+        for i, (edge_index, _, size) in enumerate(adjs):
+            x_target = x[:size[1]]  # Target nodes are always placed first.
+            x = self.convs[i]((x, x_target), edge_index)
+            if i != self.num_layers - 1:
+                x = F.relu(x)
                 x = F.dropout(x, p=0.5, training=self.training)
-        return x
+        return x.log_softmax(dim=-1)
 
     def reset_parameters(self):
       for conv in self.convs:
@@ -230,42 +235,41 @@ model = model.to(device)
 def train(epoch):
     model.train()
 
-    pbar = tqdm(total=train_idx.size(0))
+    pbar = tqdm(total=int(sum(train_idx)))
     pbar.set_description(f'Epoch {epoch:02d}')
 
     total_loss = total_correct = 0
 
     # Sample
     for step, (batch_size, ids, adjs) in enumerate(train_loader):
-      
-        # # Gather
-        # batch_inputs = gather_mmap(x, ids)
-        # batch_labels = y[ids[:batch_size]]
+        # Gather
+        batch_inputs = gather_mmap(x, ids)
+        batch_labels = y[ids[:batch_size]]
 
-        # # Transfer
-        # batch_inputs_cuda = batch_inputs.to(device)
-        # batch_labels_cuda = batch_labels.to(device)
-        # adjs_cuda = [adj.to(device) for adj in adjs]
+        # Transfer
+        batch_inputs_cuda = batch_inputs.to(device)
+        batch_labels_cuda = batch_labels.to(device)
 
-        # # Forward
-        # out = model(batch_inputs_cuda, adjs_cuda)
-        # loss = F.nll_loss(out, batch_labels_cuda.long())
+        adjs_cuda = [adj.to(device) for adj in adjs]
 
-        # # Backward
-        # optimizer.zero_grad()
-        # loss.backward()
-        # optimizer.step()
+        # Forward
+        out = model(batch_inputs_cuda, adjs_cuda)
+        loss = F.nll_loss(out, batch_labels_cuda.long())
 
-        # # Free
-        # total_loss += float(loss)
-        # total_correct += int(out.argmax(dim=-1).eq(batch_labels_cuda.long()).sum())
-        # tensor_free(batch_inputs)
-        # del(batch_inputs_cuda)
-        # del(ids)
-        # del(adjs)
-        # del(batch_labels_cuda)
-        # torch.cuda.empty_cache()
-        #print(adjs)
+        # Backward
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # Free
+        total_loss += float(loss)
+        total_correct += int(out.argmax(dim=-1).eq(batch_labels_cuda.long()).sum())
+        tensor_free(batch_inputs)
+        del(batch_inputs_cuda)
+        del(ids)
+        del(adjs)
+        del(batch_labels_cuda)
+        torch.cuda.empty_cache()
         pbar.update(batch_size)
 
     pbar.close()
@@ -334,7 +338,6 @@ for epoch in range(args.num_epochs):
     end = time.time()
     print(f'Epoch {epoch:02d}, Loss: {loss:.4f}, Approx. Train: {acc:.4f}')
     print('Epoch time: {:.4f} ms'.format((end - start) * 1000))
-    break
 
     if epoch > 3 and not args.train_only:
         val_loss, val_acc = inference(mode='valid')
