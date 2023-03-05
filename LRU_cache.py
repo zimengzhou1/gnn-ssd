@@ -5,7 +5,7 @@ import torch
 from sklearn.metrics import average_precision_score, roc_auc_score
 from torch.nn import Linear
 
-from overflowDataset import OpenFlowDataset
+from overflowDataset import OverFlowDataset
 from torch_geometric.loader import TemporalDataLoader
 from torch_geometric.nn import SAGEConv
 from torch_geometric.loader import NeighborLoader
@@ -37,10 +37,10 @@ def getHitRatio(info):
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     __file__ = os.path.abspath('')
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
+    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'overflow')
 
     print("Loading dataset...")
-    dataset = OpenFlowDataset(path)
+    dataset = OverFlowDataset(path)
     data = dataset[0]
 
     # 10% cache size

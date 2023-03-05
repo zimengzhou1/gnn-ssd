@@ -7,7 +7,6 @@ from overflowDataset import OpenFlowDataset
 from tqdm import tqdm
 from neighbor_sampler import NeighborSampler
 import argparse
-
 import scipy
 import numpy as np
 
@@ -17,6 +16,7 @@ parser.add_argument('--subset', type=float, default=1, help='percentage of data 
 parser.add_argument('--CPUCachePerc', type=int, default=20, help='CPU cache percentage of data')
 parser.add_argument('--LRUOnly', default=True, action='store_true')
 parser.add_argument('--no-LRUOnly', dest='LRUOnly', action='store_false')
+parser.add_argument('--sizes', type=str, default='10,10')
 
 try:
   args = parser.parse_args()
@@ -26,13 +26,14 @@ except:
 
 print("Using subset of: ", args.subset, "%, CPU cache of: ", args.CPUCachePerc, "% ", "LRU only: ", args.LRUOnly)
 
+sizes = [int(size) for size in args.sizes.split(',')]
+
 __file__ = os.path.abspath('')
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
 
 print("Loading dataset...")
 dataset = OpenFlowDataset(path)
 data = dataset[0]
-data.n_id = torch.arange(data.num_nodes)
  
 class LRUCache:
     def __init__(self, capacity: int):
@@ -69,7 +70,7 @@ node_ids = torch.flatten(data.edge_index.t())
 GPUCache = LRUCache(GPUCacheNum)
 
 # We sample from end of data
-temp_loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=node_ids[len(node_ids) - subset*2:], batch_size=2)
+temp_loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=node_ids[len(node_ids) - subset*2:], batch_size=2)
 
 def runLRU():
   CPUCache  = LRUCache(CPUCacheNum)

@@ -6,7 +6,7 @@ import torch
 from torch_geometric.data import InMemoryDataset, TemporalData, download_url, extract_gz, Data
 
 
-class OpenFlowDataset(InMemoryDataset):
+class OverFlowDataset(InMemoryDataset):
     url = 'https://snap.stanford.edu/data/sx-stackoverflow.txt.gz'
     name = 'stackoverflow'
 
