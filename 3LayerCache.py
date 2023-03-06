@@ -12,6 +12,7 @@ import scipy
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.utils import to_undirected
+import json
 
 
 parser = argparse.ArgumentParser('Cache testing')
@@ -28,15 +29,14 @@ except:
   parser.print_help()
   sys.exit(0)
 
-print("Using ", args.subsetPerc, "% of data, CPU cache of: ", args.CPUCachePerc, "% ")
-
+metadata = {}
 sizes = [int(size) for size in args.sizes.split(',')]
 
 __file__ = os.path.abspath('')
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
 
 dataName = args.dataset
-print("Loading dataset ", dataName, "...")
+print("Using ", args.subsetPerc, "% of data, CPU cache of: ", args.CPUCachePerc, "% dataset: ", dataName)
 
 if dataName == 'overflow':
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'overflow')
@@ -97,12 +97,15 @@ total_nodes = torch.unique(torch.cat((n1,n2))).numel()
 
 # Assume CPU cache is 20% of data
 CPUCacheNum = int(total_nodes / (100/args.CPUCachePerc))
+metadata['cacheSize'] = CPUCacheNum
 
 # Assume GPU cache is 0.25% of data
 GPUCacheNum = int(total_nodes / 200)
 node_ids = torch.flatten(data.edge_index.t())
 nodes_to_sample = node_ids[len(node_ids) - subset*2:]
 nodes_to_sample_unique_num = torch.unique(nodes_to_sample).numel()
+metadata['uniqueNodesInEdges'] = nodes_to_sample_unique_num
+metadata['totalEdgesSampled'] = subset
 # print("Total number of unique nodes in dataset: ", total_nodes)
 # print("Number of unique nodes in edges we sample: ", nodes_to_sample_unique_num)
 # print("Number of total edges sampled: ", subset)
@@ -113,7 +116,7 @@ CPUCacheStatic = LRUCache(CPUCacheNum)
 GPUCache = LRUCache(GPUCacheNum)
 
 # We sample from end of data
-print("Initializing sampler")
+#print("Initializing sampler")
 loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=nodes_to_sample, batch_size=2)
 
 # Get out neighbor statistics
@@ -135,10 +138,13 @@ for i in range(CPUCacheNum):
     val = int(indices_out[i])
     CPUCacheStatic.put(val, val)
 
+def getHitRate(stats):
+    return sum(stats)/len(stats)
+
 # Run LRU and static Cache
 def run(CPUCacheLRU, CPUCacheStatic):
   numEdgeProcessed = 0
-  pbar = tqdm(total=subset*2)
+  #pbar = tqdm(total=subset*2)
   for batch_size, ids, adjs in loader:
     for i in ids:
       i = int(i)
@@ -148,15 +154,25 @@ def run(CPUCacheLRU, CPUCacheStatic):
         # Fetch from SSD
         putVal = CPUCacheLRU.put(i,i)
         if putVal == 1:
-          print(f"After {numEdgeProcessed} edges ({numEdgeProcessed*100/subset:.2f}%), cache capacity reached")
+          metadata['capacityReached'] = numEdgeProcessed
+          #print(f"After {numEdgeProcessed} edges ({numEdgeProcessed*100/subset:.2f}%), cache capacity reached")
     numEdgeProcessed += 1
-    pbar.update(batch_size)
-  pbar.close()
+    #pbar.update(batch_size)
+  #pbar.close()
 
   t1 = torch.tensor(CPUCacheLRU.stats)
-  torch.save(t1, "cache_data/LRU_" + dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_") + '.pt')
+  commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
+  torch.save(t1, "cache_data/" + dataName + "/" + "LRU_" + commonFilePath + '.pt')
   t2 = torch.tensor(CPUCacheStatic.stats)
-  torch.save(t2, "cache_data/static_" + dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_") + '.pt')
+  torch.save(t2, "cache_data/" + dataName + "/" + "static_" + commonFilePath + '.pt')
+
+  metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
+  metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
+  if 'capacityReached' not in metadata:
+     metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
+
+  with open("cache_data/" + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
+    json.dump(metadata, fp)
 
 print("Running requests...")
 run(CPUCacheLRU, CPUCacheStatic)
