@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import os.path as osp
 import os
 import sys
@@ -79,7 +79,7 @@ class LRUCache:
             self.cache.move_to_end(key)
             return self.cache[key]
  
-    def put(self, key: int, value: int) -> None:
+    def put(self, key: int, value: int) -> int:
         self.cache[key] = value
         self.cache.move_to_end(key)
         if len(self.cache) > self.capacity:
@@ -88,6 +88,45 @@ class LRUCache:
                 self.capacityReached = True
                 return 1
         return 0
+
+class LFUCache:
+    def __init__(self, capacity: int):
+        self.capacity= capacity
+        self.minfreq= None
+        self.keyfreq= {}
+        self.freqkeys= defaultdict(OrderedDict)
+        self.stats = []
+
+    def get(self, key: int) -> int:
+        if key not in self.keyfreq:
+            self.stats.append(0)
+            return -1
+        self.stats.append(1)
+        freq = self.keyfreq[key]
+        val = self.freqkeys[freq][key]
+        del self.freqkeys[freq][key]
+        if not self.freqkeys[freq]:
+            if freq == self.minfreq:
+                self.minfreq += 1
+            del self.freqkeys[freq]
+        self.keyfreq[key] = freq+1
+        self.freqkeys[freq+1][key] = val
+        return val
+
+    def put(self, key: int, value: int) -> int:
+        if self.capacity <= 0:
+            return
+        if key in self.keyfreq:
+            freq = self.keyfreq[key]
+            self.freqkeys[freq][key] = value
+            self.get(key)
+            return 0
+        if self.capacity==len(self.keyfreq):
+            delkey,delval = self.freqkeys[self.minfreq].popitem(last=False)
+            del self.keyfreq[delkey]
+        self.keyfreq[key] = 1
+        self.freqkeys[1][key] = value
+        self.minfreq = 1
 
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
 
@@ -101,7 +140,7 @@ metadata['cacheSize'] = CPUCacheNum
 
 # Assume GPU cache is 0.25% of data
 GPUCacheNum = int(total_nodes / 200)
-node_ids = torch.flatten(data.edge_index.t())
+node_ids = torch.flatten(orig_edge_index.t())
 nodes_to_sample = node_ids[len(node_ids) - subset*2:]
 nodes_to_sample_unique_num = torch.unique(nodes_to_sample).numel()
 metadata['uniqueNodesInEdges'] = nodes_to_sample_unique_num
@@ -113,6 +152,7 @@ metadata['totalEdgesSampled'] = subset
 
 CPUCacheLRU  = LRUCache(CPUCacheNum)
 CPUCacheStatic = LRUCache(CPUCacheNum)
+CPUCacheLFU = LFUCache(CPUCacheNum)
 GPUCache = LRUCache(GPUCacheNum)
 
 # We sample from end of data
@@ -142,32 +182,38 @@ def getHitRate(stats):
     return sum(stats)/len(stats)
 
 # Run LRU and static Cache
-def run(CPUCacheLRU, CPUCacheStatic):
+def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU):
   numEdgeProcessed = 0
-  #pbar = tqdm(total=subset*2)
+  pbar = tqdm(total=subset*2)
   for batch_size, ids, adjs in loader:
     for i in ids:
       i = int(i)
-      val = CPUCacheLRU.get(i)
+      LRUval = CPUCacheLRU.get(i)
+      LFUval = CPUCacheLFU.get(i)
+      if (LFUval == -1):
+         putVal = CPUCacheLFU.put(i,i)
       CPUCacheStatic.get(i)
-      if (val == -1):
+      if (LRUval == -1):
         # Fetch from SSD
         putVal = CPUCacheLRU.put(i,i)
         if putVal == 1:
           metadata['capacityReached'] = numEdgeProcessed
           #print(f"After {numEdgeProcessed} edges ({numEdgeProcessed*100/subset:.2f}%), cache capacity reached")
     numEdgeProcessed += 1
-    #pbar.update(batch_size)
-  #pbar.close()
+    pbar.update(batch_size)
+  pbar.close()
 
   t1 = torch.tensor(CPUCacheLRU.stats)
   commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
   torch.save(t1, "cache_data/" + dataName + "/" + "LRU_" + commonFilePath + '.pt')
   t2 = torch.tensor(CPUCacheStatic.stats)
   torch.save(t2, "cache_data/" + dataName + "/" + "static_" + commonFilePath + '.pt')
+  t3 = torch.tensor(CPUCacheLFU.stats)
+  torch.save(t3, "cache_data/" + dataName + "/" + "LFU_" + commonFilePath + '.pt')
 
   metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
   metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
+  metadata['LFUAccuracy'] = getHitRate(CPUCacheLFU.stats)
   if 'capacityReached' not in metadata:
      metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
 
@@ -175,4 +221,4 @@ def run(CPUCacheLRU, CPUCacheStatic):
     json.dump(metadata, fp)
 
 print("Running requests...")
-run(CPUCacheLRU, CPUCacheStatic)
+run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU)

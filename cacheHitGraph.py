@@ -29,15 +29,19 @@ print(__file__)
 pathStart = __file__ + "/cache_data/" + args.dataset + "/"
 t1 = torch.load(pathStart +  "LRU_" + args.dataset + args.path).numpy()
 t2 = torch.load(pathStart +  "static_" + args.dataset + args.path).numpy()
+t3 = torch.load(pathStart +  "LFU_" + args.dataset + args.path).numpy()
 
 interval_size = 20000
 LRU_intervals = sum_intv_new(t1, interval_size)
 static_intervals = sum_intv_new(t2, interval_size)
+LFU_intervals = sum_intv_new(t3, interval_size)
 print("static hit rate: ", getHitRate(static_intervals))
 print("LRU hit rate: ", getHitRate(LRU_intervals))
+print("LFU hit rate: ", getHitRate(LFU_intervals))
 
 plt.plot(static_intervals, label='static')
 plt.plot(LRU_intervals, label='LRU')
+plt.plot(LFU_intervals, label='LFU')
 plt.title('Average cache hit per ' + str(interval_size) + ' requests')
 plt.ylabel('Cache hit percentage')
 plt.xlabel('Iterations')
