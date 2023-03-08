@@ -160,7 +160,7 @@ GPUCache = LRUCache(GPUCacheNum)
 loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=nodes_to_sample, batch_size=2)
 
 # Get out neighbor statistics
-coo = orig_edge_index.numpy()
+coo = data.edge_index.numpy()
 v = np.ones_like(coo[0])
 coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(orig_edge_index[0].numel(), orig_edge_index[0].numel()))
 csc = coo.tocsc()

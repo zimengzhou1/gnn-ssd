@@ -1,5 +1,6 @@
 import os.path as osp
 from typing import Callable, Optional
+from sklearn import preprocessing
 
 import torch
 
@@ -48,6 +49,17 @@ class OverFlowDataset(InMemoryDataset):
 
         src = torch.from_numpy(df.iloc[:, 0].values).to(torch.long)
         dst = torch.from_numpy(df.iloc[:, 1].values).to(torch.long)
+        print("starting label encoding...")
+        total_nodes = torch.unique(torch.cat((src,dst))).tolist()
+        le = preprocessing.LabelEncoder()
+        le.fit(total_nodes)
+        print("fitted")
+        print(type(le.transform(src.tolist())))
+        src = torch.from_numpy(le.transform(src.tolist())).to(torch.long)
+        dst = torch.from_numpy(le.transform(dst.tolist())).to(torch.long)
+        print(type(src))
+        print(src.shape)
+        print("preprocessing encoding")
         #dst += int(src.max()) + 1
         t = torch.from_numpy(df.iloc[:, 2].values).to(torch.long)
         # y = torch.from_numpy(df.iloc[:, 3].values).to(torch.long)
