@@ -1,4 +1,4 @@
-from collections import OrderedDict, defaultdict
+from cacheImpl import *
 import os.path as osp
 import os
 import sys
@@ -18,8 +18,6 @@ import json
 parser = argparse.ArgumentParser('Cache testing')
 parser.add_argument('--subsetPerc', type=float, default=1, help='percentage of data to sample from')
 parser.add_argument('--CPUCachePerc', type=int, default=20, help='CPU cache percentage of data')
-# parser.add_argument('--LRUOnly', default=True, action='store_true')
-# parser.add_argument('--no-LRUOnly', dest='LRUOnly', action='store_false')
 parser.add_argument('--sizes', type=str, default='10,10')
 parser.add_argument('--dataset', type=str, default='reddit')
 
@@ -62,71 +60,6 @@ elif dataName == 'wiki':
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
- 
-class LRUCache:
-    def __init__(self, capacity: int):
-        self.cache = OrderedDict()
-        self.capacity = capacity
-        self.stats = []
-        self.capacityReached = False
- 
-    def get(self, key: int) -> int:
-        if key not in self.cache:
-            self.stats.append(0)
-            return -1
-        else:
-            self.stats.append(1)
-            self.cache.move_to_end(key)
-            return self.cache[key]
- 
-    def put(self, key: int, value: int) -> int:
-        self.cache[key] = value
-        self.cache.move_to_end(key)
-        if len(self.cache) > self.capacity:
-            self.cache.popitem(last = False)
-            if not self.capacityReached:
-                self.capacityReached = True
-                return 1
-        return 0
-
-class LFUCache:
-    def __init__(self, capacity: int):
-        self.capacity= capacity
-        self.minfreq= None
-        self.keyfreq= {}
-        self.freqkeys= defaultdict(OrderedDict)
-        self.stats = []
-
-    def get(self, key: int) -> int:
-        if key not in self.keyfreq:
-            self.stats.append(0)
-            return -1
-        self.stats.append(1)
-        freq = self.keyfreq[key]
-        val = self.freqkeys[freq][key]
-        del self.freqkeys[freq][key]
-        if not self.freqkeys[freq]:
-            if freq == self.minfreq:
-                self.minfreq += 1
-            del self.freqkeys[freq]
-        self.keyfreq[key] = freq+1
-        self.freqkeys[freq+1][key] = val
-        return val
-
-    def put(self, key: int, value: int) -> int:
-        if self.capacity <= 0:
-            return
-        if key in self.keyfreq:
-            freq = self.keyfreq[key]
-            self.freqkeys[freq][key] = value
-            self.get(key)
-            return 0
-        if self.capacity==len(self.keyfreq):
-            delkey,delval = self.freqkeys[self.minfreq].popitem(last=False)
-            del self.keyfreq[delkey]
-        self.keyfreq[key] = 1
-        self.freqkeys[1][key] = value
-        self.minfreq = 1
 
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
 
@@ -145,14 +78,11 @@ nodes_to_sample = node_ids[len(node_ids) - subset*2:]
 nodes_to_sample_unique_num = torch.unique(nodes_to_sample).numel()
 metadata['uniqueNodesInEdges'] = nodes_to_sample_unique_num
 metadata['totalEdgesSampled'] = subset
-# print("Total number of unique nodes in dataset: ", total_nodes)
-# print("Number of unique nodes in edges we sample: ", nodes_to_sample_unique_num)
-# print("Number of total edges sampled: ", subset)
-
 
 CPUCacheLRU  = LRUCache(CPUCacheNum)
 CPUCacheStatic = LRUCache(CPUCacheNum)
 CPUCacheLFU = LFUCache(CPUCacheNum)
+CPUCacheARC = ARCCache(CPUCacheNum)
 GPUCache = LRUCache(GPUCacheNum)
 
 # We sample from end of data
@@ -162,7 +92,7 @@ loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=nodes_to_sample,
 # Get out neighbor statistics
 coo = data.edge_index.numpy()
 v = np.ones_like(coo[0])
-coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(orig_edge_index[0].numel(), orig_edge_index[0].numel()))
+coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(total_nodes, total_nodes))
 csc = coo.tocsc()
 csr = coo.tocsr()
 
@@ -182,19 +112,21 @@ def getHitRate(stats):
     return sum(stats)/len(stats)
 
 # Run LRU and static Cache
-def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU):
+def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
   numEdgeProcessed = 0
   pbar = tqdm(total=subset*2)
   for batch_size, ids, adjs in loader:
     for i in ids:
       i = int(i)
+      CPUCacheStatic.get(i)
       LRUval = CPUCacheLRU.get(i)
       LFUval = CPUCacheLFU.get(i)
+      ARCval = CPUCacheARC.get(i)
       if (LFUval == -1):
          putVal = CPUCacheLFU.put(i,i)
-      CPUCacheStatic.get(i)
+      if (ARCval == -1):
+         CPUCacheARC.put(i,i)
       if (LRUval == -1):
-        # Fetch from SSD
         putVal = CPUCacheLRU.put(i,i)
         if putVal == 1:
           metadata['capacityReached'] = numEdgeProcessed
@@ -210,10 +142,13 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU):
   torch.save(t2, "cache_data/" + dataName + "/" + "static_" + commonFilePath + '.pt')
   t3 = torch.tensor(CPUCacheLFU.stats)
   torch.save(t3, "cache_data/" + dataName + "/" + "LFU_" + commonFilePath + '.pt')
+  t4 = torch.tensor(CPUCacheARC.stats)
+  torch.save(t4, "cache_data/" + dataName + "/" + "ARC_" + commonFilePath + '.pt')
 
   metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
   metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
   metadata['LFUAccuracy'] = getHitRate(CPUCacheLFU.stats)
+  metadata['ARCAccuracy'] = getHitRate(CPUCacheARC.stats)
   if 'capacityReached' not in metadata:
      metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
 
@@ -221,4 +156,4 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU):
     json.dump(metadata, fp)
 
 print("Running requests...")
-run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU)
+run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC)
