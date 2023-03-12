@@ -50,7 +50,7 @@ if __name__ == '__main__':
   subsetPerc = str(100.0)
   CPUCachePerc = str(100)
   sizes = '10,5'
-  dataset = 'reddit'
+  dataset = 'wiki'
   testCacheSize()
   #generateGraphs()
   #generateCoeff()

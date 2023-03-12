@@ -38,24 +38,24 @@ dataName = args.dataset
 print("Using ", args.subsetPerc, "% of data, CPU cache of: ", args.CPUCachePerc, "% dataset: ", dataName)
 
 if dataName == 'overflow':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'overflow')
+    path = '/mnt/raid0nvme1/zz/data/' + 'overflow'
     dataset = OverFlowDataset(path)
     data = dataset[0]
     orig_edge_index = data.edge_index
 elif dataName == 'taobao':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'taobao', 'taobao.pt')
+    path = '/mnt/raid0nvme1/zz/data/' + 'taobao/taobao.pt'
     data = torch.load(path)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 elif dataName == 'reddit':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'JODIE')
+    path = '/mnt/raid0nvme1/zz/data/' + 'JODIE'
     dataset = JODIEDataset(path, name='reddit')
     data_orig = dataset[0]
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 elif dataName == 'wiki':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'JODIE')
+    path = '/mnt/raid0nvme1/zz/data/' + 'JODIE'
     dataset = JODIEDataset(path, name='wikipedia')
     data_orig = dataset[0]
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
@@ -167,14 +167,15 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
   pbar.close()
 
   t1 = torch.tensor(CPUCacheLRU.stats)
+  pathStart = '/mnt/raid0nvme1/zz/cache_data/'
   commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
-  torch.save(t1, "cache_data/" + dataName + "/" + "LRU_" + commonFilePath + '.pt')
+  torch.save(t1, pathStart + dataName + "/" + "LRU_" + commonFilePath + '.pt')
   t2 = torch.tensor(CPUCacheStatic.stats)
-  torch.save(t2, "cache_data/" + dataName + "/" + "static_" + commonFilePath + '.pt')
+  torch.save(t2, pathStart + dataName + "/" + "static_" + commonFilePath + '.pt')
   t3 = torch.tensor(CPUCacheLFU.stats)
-  torch.save(t3, "cache_data/" + dataName + "/" + "LFU_" + commonFilePath + '.pt')
+  torch.save(t3, pathStart + dataName + "/" + "LFU_" + commonFilePath + '.pt')
   t4 = torch.tensor(CPUCacheARC.stats)
-  torch.save(t4, "cache_data/" + dataName + "/" + "ARC_" + commonFilePath + '.pt')
+  torch.save(t4, pathStart + dataName + "/" + "ARC_" + commonFilePath + '.pt')
 
   metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
   metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
@@ -183,7 +184,7 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
   if 'capacityReached' not in metadata:
      metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
 
-  with open("cache_data/" + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
+  with open(pathStart + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
     json.dump(metadata, fp)
 
 print("Running requests...")

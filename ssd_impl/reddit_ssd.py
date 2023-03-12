@@ -22,7 +22,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Set environment and path
 os.environ['GINEX_NUM_THREADS'] = str(128)
 
-dataset_path = osp.join(osp.dirname(osp.realpath(__file__)), 'data', 'Reddit')
+dataset_path = "/mnt/raid0nvme1/zz/ginex/data/Reddit"
 dataset = Reddit(dataset_path)
 
 # # Construct sparse formats
@@ -115,7 +115,7 @@ dataset = Reddit(dataset_path)
 # torch.save(score, score_path)
 # print('Done!')
 
-def get_mmap_dataset(path='../data/Reddit'):
+def get_mmap_dataset(path=dataset_path):
     indptr_path = os.path.join(path, 'indptr.dat')
     indices_path = os.path.join(path, 'indices.dat')
     features_path = os.path.join(path, 'features.dat')
@@ -160,7 +160,7 @@ argparser.add_argument('--num-hiddens', type=int, default=256)
 argparser.add_argument('--dataset', type=str, default='ogbn-papers100M')
 argparser.add_argument('--sizes', type=str, default='10,10')
 argparser.add_argument('--ginex-num-threads', type=int, default=128)
-argparser.add_argument('--train-only', dest='train_only', default=True, action='store_true')
+argparser.add_argument('--train-only', dest='train_only', default=False, action='store_true')
 args = argparser.parse_args()
 
 indptr, indices, x, y, num_features, num_classes, num_nodes, train_idx, valid_idx, test_idx = get_mmap_dataset()
