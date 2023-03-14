@@ -14,6 +14,7 @@ from torch_geometric.datasets import Reddit
 from torch_geometric.loader import NeighborLoader
 from torch_geometric.nn import SAGEConv
 from customNeighborSampler import MMAPNeighborSampler
+from cache import FeatureCache
 
 from lib.utils import *
 
@@ -24,96 +25,6 @@ os.environ['GINEX_NUM_THREADS'] = str(128)
 
 dataset_path = "/mnt/raid0nvme1/zz/ginex/data/Reddit"
 dataset = Reddit(dataset_path)
-
-# # Construct sparse formats
-# print('Creating coo/csc/csr format of dataset...')
-# num_nodes = dataset[0].num_nodes
-# coo = dataset[0].edge_index.numpy()
-# v = np.ones_like(coo[0])
-# coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(num_nodes, num_nodes))
-# csc = coo.tocsc()
-# csr = coo.tocsr()
-# print('Done!')
-
-
-# # Save csc-formatted dataset
-# indptr = csc.indptr.astype(np.int64)
-# indices = csc.indices.astype(np.int64)
-# features = dataset[0].x
-# labels = dataset[0].y
-
-# os.makedirs(dataset_path, exist_ok=True)
-# indptr_path = os.path.join(dataset_path, 'indptr.dat')
-# indices_path = os.path.join(dataset_path, 'indices.dat')
-# features_path = os.path.join(dataset_path, 'features.dat')
-# labels_path = os.path.join(dataset_path, 'labels.dat')
-# conf_path = os.path.join(dataset_path, 'conf.json')
-# split_idx_path = os.path.join(dataset_path, 'split_idx.pth')
-
-# print('Saving indptr...')
-# indptr_mmap = np.memmap(indptr_path, mode='w+', shape=indptr.shape, dtype=indptr.dtype)
-# indptr_mmap[:] = indptr[:]
-# indptr_mmap.flush()
-# print('Done!')
-
-# print('Saving indices...')
-# indices_mmap = np.memmap(indices_path, mode='w+', shape=indices.shape, dtype=indices.dtype)
-# indices_mmap[:] = indices[:]
-# indices_mmap.flush()
-# print('Done!')
-
-# print('Saving features...')
-# features_mmap = np.memmap(features_path, mode='w+', shape=dataset[0].x.shape, dtype=np.float32)
-# features_mmap[:] = features[:]
-# features_mmap.flush()
-# print('Done!')
-
-# print('Saving labels...')
-# labels = labels.type(torch.float32)
-# labels_mmap = np.memmap(labels_path, mode='w+', shape=dataset[0].y.shape, dtype=np.float32)
-# labels_mmap[:] = labels[:]
-# labels_mmap.flush()
-# print('Done!')
-
-# print('Making conf file...')
-# mmap_config = dict()
-# mmap_config['num_nodes'] = int(dataset[0].num_nodes)
-# mmap_config['indptr_shape'] = tuple(indptr.shape)
-# mmap_config['indptr_dtype'] = str(indptr.dtype)
-# mmap_config['indices_shape'] = tuple(indices.shape)
-# mmap_config['indices_dtype'] = str(indices.dtype)
-# mmap_config['indices_shape'] = tuple(indices.shape)
-# mmap_config['indices_dtype'] = str(indices.dtype)
-# mmap_config['indices_shape'] = tuple(indices.shape)
-# mmap_config['indices_dtype'] = str(indices.dtype)
-# mmap_config['features_shape'] = tuple(features_mmap.shape)
-# mmap_config['features_dtype'] = str(features_mmap.dtype)
-# mmap_config['labels_shape'] = tuple(labels_mmap.shape)
-# mmap_config['labels_dtype'] = str(labels_mmap.dtype)
-# mmap_config['num_classes'] = int(dataset.num_classes)
-# json.dump(mmap_config, open(conf_path, 'w'))
-# print('Done!')
-
-# print('Saving split index...')
-# splits = {'train': dataset[0].train_mask, 'test': dataset[0].test_mask, 'valid': dataset[0].val_mask}
-# torch.save(splits, split_idx_path)
-# print('Done!')
-
-# # Calculate and save score for neighbor cache construction
-# print('Calculating score for neighbor cache construction...')
-# score_path = os.path.join(dataset_path, 'nc_score.pth')
-# csc_indptr_tensor = torch.from_numpy(csc.indptr.astype(np.int64))
-# csr_indptr_tensor = torch.from_numpy(csr.indptr.astype(np.int64))
-
-# eps = 0.00000001
-# in_num_neighbors = (csc_indptr_tensor[1:] - csc_indptr_tensor[:-1]) + eps
-# out_num_neighbors = (csr_indptr_tensor[1:] - csr_indptr_tensor[:-1]) + eps
-# score = out_num_neighbors / in_num_neighbors
-# print('Done!')
-
-# print('Saving score...')
-# torch.save(score, score_path)
-# print('Done!')
 
 def get_mmap_dataset(path=dataset_path):
     indptr_path = os.path.join(path, 'indptr.dat')
@@ -147,7 +58,7 @@ def get_mmap_dataset(path=dataset_path):
     val_idx = split_idx['valid']
     test_idx = split_idx['test']
 
-    return indptr, indices, features, labels, num_features, num_classes, num_nodes, train_idx, val_idx, test_idx
+    return indptr, indices, features, labels, num_features, num_classes, num_nodes, train_idx, val_idx, test_idx, features_path
 
 
 # Parse arguments
@@ -163,7 +74,16 @@ argparser.add_argument('--ginex-num-threads', type=int, default=128)
 argparser.add_argument('--train-only', dest='train_only', default=False, action='store_true')
 args = argparser.parse_args()
 
-indptr, indices, x, y, num_features, num_classes, num_nodes, train_idx, valid_idx, test_idx = get_mmap_dataset()
+indptr, indices, x, y, num_features, num_classes, num_nodes, train_idx, valid_idx, test_idx, features_path = get_mmap_dataset()
+feature_cache_size = int(len(x)/(100/30))
+mmapped_features = x
+print("num features: ", num_features)
+print(len(x[0]))
+
+score_path = os.path.join(dataset_path, 'out_deg.pth')
+score = torch.load(score_path)
+sorted_indices = score
+print("sorted len: ", len(sorted_indices))
 
 sizes = [int(size) for size in args.sizes.split(',')]
 train_loader = MMAPNeighborSampler(indptr, indices, node_idx=train_idx,
@@ -231,6 +151,18 @@ class SAGE(torch.nn.Module):
 model = SAGE(num_features, args.num_hiddens, num_classes)
 model = model.to(device)
 
+# Initialized cache
+cache = FeatureCache(feature_cache_size, num_nodes, mmapped_features, num_features, False)
+
+# Fill cache with top out-degree
+indices = []
+for i in range(feature_cache_size):
+    indices.append(sorted_indices[i])
+
+indices = torch.tensor(indices, dtype=torch.long).cpu()
+cache.fill_cache(indices)
+
+print("cache filled!")
 
 def train(epoch):
     model.train()
@@ -243,7 +175,9 @@ def train(epoch):
     # Sample
     for step, (batch_size, ids, adjs) in enumerate(train_loader):
         # Gather
-        batch_inputs = gather_mmap(x, ids)
+        #batch_inputs = gather_mmap(x, ids)
+        batch_inputs, hits, misses = gather_ginex(features_path, ids, num_features, cache)
+        #print("hits: ", hits, " misses: ", misses)
         batch_labels = y[ids[:batch_size]]
 
         # Transfer
