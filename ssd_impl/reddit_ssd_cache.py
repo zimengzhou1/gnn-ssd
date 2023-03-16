@@ -75,6 +75,7 @@ argparser.add_argument('--train-only', dest='train_only', default=False, action=
 args = argparser.parse_args()
 
 indptr, indices, x, y, num_features, num_classes, num_nodes, train_idx, valid_idx, test_idx, features_path = get_mmap_dataset()
+#x = x.cpu()
 feature_cache_size = int(len(x)/(100/30))
 mmapped_features = x
 print("num features: ", num_features)

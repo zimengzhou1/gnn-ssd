@@ -62,6 +62,10 @@ elif dataName == 'wiki':
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 
+# Load dictionary for LFUImproved
+with open('/mnt/raid0nvme1/zz/cache_data/' + dataName + ".json", 'r') as f:
+  LFUFreqs = json.load(f)
+
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
 
 n1 = torch.unique(orig_edge_index[0])
@@ -87,6 +91,7 @@ metadata['totalEdgesSampled'] = subset
 CPUCacheLRU  = LRUCache(CPUCacheNum)
 CPUCacheStatic = LRUCache(CPUCacheNum)
 CPUCacheLFU = LFUCache(CPUCacheNum)
+CPUCacheLFUImproved = LFUCacheImp(CPUCacheNum)
 CPUCacheARC = ARCCache(CPUCacheNum)
 GPUCache = LRUCache(GPUCacheNum)
 
@@ -136,7 +141,7 @@ def getHitRate(stats):
     return sum(stats)/len(stats)
 
 # Run LRU and static Cache
-def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
+def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC, CPUCacheLFUImproved):
   numEdgeProcessed = 0
   # pbar = tqdm(total=subset*2)
   pbar = tqdm(total=subset)
@@ -152,6 +157,9 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
       LRUval = CPUCacheLRU.get(i)
       LFUval = CPUCacheLFU.get(i)
       ARCval = CPUCacheARC.get(i)
+      LFUImpval = CPUCacheLFUImproved.get(i)
+      if (LFUImpval == -1):
+         putVal = CPUCacheLFUImproved.put(i,i, LFUFreqs[str(i)])
       if (LFUval == -1):
          putVal = CPUCacheLFU.put(i,i)
       if (ARCval == -1):
@@ -167,20 +175,22 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
   pbar.close()
 
   t1 = torch.tensor(CPUCacheLRU.stats)
-  pathStart = '/mnt/raid0nvme1/zz/cache_data/'
+  #pathStart = '/mnt/raid0nvme1/zz/cache_data/'
+  pathStart = './results/'
   commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
-  torch.save(t1, pathStart + dataName + "/" + "LRU_" + commonFilePath + '.pt')
+  #torch.save(t1, pathStart + dataName + "/" + "LRU_" + commonFilePath + '.pt')
   t2 = torch.tensor(CPUCacheStatic.stats)
-  torch.save(t2, pathStart + dataName + "/" + "static_" + commonFilePath + '.pt')
+  #torch.save(t2, pathStart + dataName + "/" + "static_" + commonFilePath + '.pt')
   t3 = torch.tensor(CPUCacheLFU.stats)
-  torch.save(t3, pathStart + dataName + "/" + "LFU_" + commonFilePath + '.pt')
+  #torch.save(t3, pathStart + dataName + "/" + "LFU_" + commonFilePath + '.pt')
   t4 = torch.tensor(CPUCacheARC.stats)
-  torch.save(t4, pathStart + dataName + "/" + "ARC_" + commonFilePath + '.pt')
+  #torch.save(t4, pathStart + dataName + "/" + "ARC_" + commonFilePath + '.pt')
 
   metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
   metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
   metadata['LFUAccuracy'] = getHitRate(CPUCacheLFU.stats)
   metadata['ARCAccuracy'] = getHitRate(CPUCacheARC.stats)
+  metadata['LFUImpAccuracy'] = getHitRate(CPUCacheLFUImproved.stats)
   if 'capacityReached' not in metadata:
      metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
 
@@ -188,4 +198,4 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC):
     json.dump(metadata, fp)
 
 print("Running requests...")
-run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC)
+run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC, CPUCacheLFUImproved)

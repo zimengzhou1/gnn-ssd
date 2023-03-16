@@ -65,6 +65,49 @@ class LFUCache:
         self.freqkeys[1][key] = value
         self.minfreq = 1
 
+class LFUCacheImp:
+    def __init__(self, capacity: int):
+        self.capacity= capacity
+        self.minfreq= float('inf')
+        self.keyfreq= {}
+        self.freqkeys= defaultdict(OrderedDict)
+        self.minfreqs = []
+        self.stats = []
+
+    def get(self, key: int) -> int:
+        if key not in self.keyfreq:
+            self.stats.append(0)
+            return -1
+        self.stats.append(1)
+        freq = self.keyfreq[key]
+        val = self.freqkeys[freq][key]
+        # del self.freqkeys[freq][key]
+        # if not self.freqkeys[freq]:
+            # if freq == self.minfreq:
+                # self.minfreq += 1
+            # del self.freqkeys[freq]
+        # self.keyfreq[key] = freq+1
+        # self.freqkeys[freq+1][key] = val
+        return val
+
+    def put(self, key: int, value: int, freq: int) -> int:
+        if self.capacity <= 0:
+            return
+        if key in self.keyfreq:
+            freq = self.keyfreq[key]
+            self.freqkeys[freq][key] = value
+            self.get(key)
+            return 0
+        if self.capacity==len(self.keyfreq):
+            delkey,delval = self.freqkeys[self.minfreq].popitem(last=False)
+            if not self.freqkeys[self.minfreq]:
+               del self.freqkeys[self.minfreq]
+            del self.keyfreq[delkey]
+            self.minfreq = min(self.freqkeys.keys())
+        self.keyfreq[key] = freq
+        self.freqkeys[freq][key] = value
+        self.minfreq = min([self.minfreq, freq])
+
 class Deque(object):
     'Fast searchable queue'
     def __init__(self):
