@@ -47,10 +47,10 @@ def generateCoeff():
 if __name__ == '__main__':
   __file__ = os.path.abspath('')
   print(__file__)
-  subsetPerc = str(3.0)
+  subsetPerc = str(50.0)
   CPUCachePerc = str(100)
   sizes = '10,5'
-  dataset = 'overflow'
+  dataset = 'reddit'
   testCacheSize()
   #generateGraphs()
   #generateCoeff()

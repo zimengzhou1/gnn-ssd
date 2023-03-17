@@ -63,7 +63,7 @@ elif dataName == 'wiki':
     data.edge_index = to_undirected(data.edge_index)
 
 # Load dictionary for LFUImproved
-with open('/mnt/raid0nvme1/zz/cache_data/' + dataName + ".json", 'r') as f:
+with open('/mnt/raid0nvme1/zz/cache_data/' + dataName + "_new" + ".json", 'r') as f:
   LFUFreqs = json.load(f)
 
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
