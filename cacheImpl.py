@@ -69,7 +69,9 @@ class LFUCacheImp:
     def __init__(self, capacity: int):
         self.capacity= capacity
         self.minfreq= float('inf')
+        # key to frequency dict
         self.keyfreq= {}
+        # Key values are freqency number, values are nodes that have this frequency
         self.freqkeys= defaultdict(OrderedDict)
         self.minfreqs = []
         self.stats = []
@@ -81,13 +83,6 @@ class LFUCacheImp:
         self.stats.append(1)
         freq = self.keyfreq[key]
         val = self.freqkeys[freq][key]
-        # del self.freqkeys[freq][key]
-        # if not self.freqkeys[freq]:
-            # if freq == self.minfreq:
-                # self.minfreq += 1
-            # del self.freqkeys[freq]
-        # self.keyfreq[key] = freq+1
-        # self.freqkeys[freq+1][key] = val
         return val
 
     def put(self, key: int, value: int, freq: int) -> int:
@@ -99,10 +94,12 @@ class LFUCacheImp:
             self.get(key)
             return 0
         if self.capacity==len(self.keyfreq):
+            # Remove latest node from nodes that have lowest frequency
             delkey,delval = self.freqkeys[self.minfreq].popitem(last=False)
             if not self.freqkeys[self.minfreq]:
                del self.freqkeys[self.minfreq]
             del self.keyfreq[delkey]
+            # Update lowest frequency
             self.minfreq = min(self.freqkeys.keys())
         self.keyfreq[key] = freq
         self.freqkeys[freq][key] = value
