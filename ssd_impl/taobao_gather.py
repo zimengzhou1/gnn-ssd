@@ -53,7 +53,7 @@ def get_mmap_dataset(path=dataset_path):
     num_nodes = conf['num_nodes']
     num_features = conf['features_shape'][1]
 
-    return indptr, indices, features, sampled, num_features, num_nodes
+    return indptr, indices, features, sampled, num_features, num_nodes, features_path
 
 
 # Parse arguments
@@ -69,9 +69,9 @@ argparser.add_argument('--ginex-num-threads', type=int, default=128)
 argparser.add_argument('--train-only', dest='train_only', default=False, action='store_true')
 args = argparser.parse_args()
 
-indptr, indices, x, sampled, num_features, num_nodes  = get_mmap_dataset()
+indptr, indices, x, sampled, num_features, num_nodes, features_path  = get_mmap_dataset()
 
-num_edges_sampled = 1000
+num_edges_sampled = 10000
 
 sizes = [int(size) for size in args.sizes.split(',')]
 train_loader = MMAPNeighborSampler(indptr, indices, node_idx=sampled[-2*num_edges_sampled:],
@@ -87,11 +87,26 @@ print(curr_used)
 RAM_left = 2000 - curr_used - 100
 feature_size_mb = os.path.getsize(os.path.join(dataset_path, 'features.dat')) / 1024 ** 2
 cache_ratio = RAM_left / feature_size_mb
-feature_cache_size = int(num_nodes/(100/cache_ratio))
+feature_cache_size = int(num_nodes * cache_ratio)
 print("cache ratio: ", cache_ratio)
 print("cache size: ", feature_cache_size, "/", num_nodes)
+features_cache_size = 1
 
 cache = FeatureCache(feature_cache_size, num_nodes, x, num_features, False)
+
+score_path = os.path.join(dataset_path, 'out_deg.pth')
+score = torch.load(score_path)
+sorted_indices = score
+print("sorted len: ", len(sorted_indices))
+
+# Fill cache with top out-degree
+indices = []
+for i in range(feature_cache_size):
+    indices.append(sorted_indices[-i])
+
+indices = torch.tensor(indices, dtype=torch.long).cpu()
+cache.fill_cache(indices)
+
 print(psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
 
 def train(epoch):
@@ -100,17 +115,23 @@ def train(epoch):
     pbar.set_description(f'Epoch {epoch:02d}')
 
     total_loss = total_correct = 0
+    total_hits = 0
+    total_misses = 0
 
     # Sample
     for step, (batch_size, ids, adjs) in enumerate(train_loader):
         # Gather
         #print(psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
-        batch_inputs = gather_mmap(x, ids)
+        batch_inputs, hits, misses = gather_ginex(features_path, ids, num_features, cache)
+        total_hits += hits
+        total_misses += misses
 
         torch.cuda.empty_cache()
         pbar.update(batch_size)
 
     pbar.close()
+    print("Total Hits: ", total_hits, " perc: ", total_hits/(total_hits+total_misses))
+    print("Total misses: ", total_misses, " perc: ", total_misses/(total_hits+total_misses))
 
 
 for epoch in range(args.num_epochs):
