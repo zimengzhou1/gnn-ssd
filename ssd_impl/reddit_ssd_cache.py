@@ -24,7 +24,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 os.environ['GINEX_NUM_THREADS'] = str(128)
 
 dataset_path = "/mnt/raid0nvme1/zz/ginex/data/Reddit"
-dataset = Reddit(dataset_path)
 
 def get_mmap_dataset(path=dataset_path):
     indptr_path = os.path.join(path, 'indptr.dat')
