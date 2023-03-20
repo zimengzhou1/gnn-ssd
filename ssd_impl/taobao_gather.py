@@ -127,6 +127,7 @@ def train(epoch):
         total_misses += misses
 
         torch.cuda.empty_cache()
+        tensor_free(batch_inputs)
         pbar.update(batch_size)
 
     pbar.close()

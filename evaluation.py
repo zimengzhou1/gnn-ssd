@@ -35,7 +35,7 @@ def generateGraphs():
 
 # Todo: For large datasets, only test coefficients in nodes that are sampled
 def generateCoeff():
-  sampleSizes = ['1', '2', '5', '10', '10,2', '10,5', '10,10']
+  sampleSizes = ['5,2', '5,5']
   pool = [Process(target=script3, args=[subsetPerc, '100', i, dataset]) for i in sampleSizes]
 
   for p in pool:
@@ -47,10 +47,10 @@ def generateCoeff():
 if __name__ == '__main__':
   __file__ = os.path.abspath('')
   print(__file__)
-  subsetPerc = str(50.0)
+  subsetPerc = str(3.0)
   CPUCachePerc = str(100)
   sizes = '10,5'
-  dataset = 'reddit'
-  testCacheSize()
+  dataset = 'taobao'
+  #testCacheSize()
   #generateGraphs()
-  #generateCoeff()
+  generateCoeff()

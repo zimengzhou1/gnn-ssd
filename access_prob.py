@@ -40,24 +40,24 @@ dataName = args.dataset
 print("Using ", args.subsetPerc, "% of data, CPU cache of: ", args.CPUCachePerc, "% dataset: ", dataName)
 
 if dataName == 'overflow':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'overflow')
+    path = '/mnt/raid0nvme1/zz/data/' + 'overflow'
     dataset = OverFlowDataset(path)
     data = dataset[0]
     orig_edge_index = data.edge_index
 elif dataName == 'taobao':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'taobao', 'taobao.pt')
+    path = '/mnt/raid0nvme1/zz/data/' + 'taobao/taobao.pt'
     data = torch.load(path)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 elif dataName == 'reddit':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'JODIE')
+    path = '/mnt/raid0nvme1/zz/data/' + 'JODIE'
     dataset = JODIEDataset(path, name='reddit')
     data_orig = dataset[0]
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 elif dataName == 'wiki':
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'JODIE')
+    path = '/mnt/raid0nvme1/zz/data/' + 'JODIE'
     dataset = JODIEDataset(path, name='wikipedia')
     data_orig = dataset[0]
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
