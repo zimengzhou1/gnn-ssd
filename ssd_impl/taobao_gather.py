@@ -25,7 +25,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # Used in sample and gather c++
 os.environ['GINEX_NUM_THREADS'] = str(128)
 
-dataset_path = "/mnt/raid0nvme1/zz/data/taobao"
+dataset_path = "../../taobao"
 
 def get_mmap_dataset(path=dataset_path):
     indptr_path = os.path.join(path, 'indptr.dat')
@@ -61,11 +61,12 @@ argparser = argparse.ArgumentParser()
 argparser.add_argument('--gpu', type=int, default=0)
 argparser.add_argument('--num-epochs', type=int, default=1)
 argparser.add_argument('--batch-size', type=int, default=2)
-argparser.add_argument('--num-workers', type=int, default=32)
+argparser.add_argument('--num-workers', type=int, default=30)
 argparser.add_argument('--num-hiddens', type=int, default=256)
 argparser.add_argument('--dataset', type=str, default='ogbn-papers100M')
 argparser.add_argument('--sizes', type=str, default='10,10')
 argparser.add_argument('--ginex-num-threads', type=int, default=128)
+argparser.add_argument('--ramsize', type=int, default=2000)
 argparser.add_argument('--train-only', dest='train_only', default=False, action='store_true')
 args = argparser.parse_args()
 
@@ -84,13 +85,14 @@ train_loader = MMAPNeighborSampler(indptr, indices, node_idx=sampled[-2*num_edge
 curr_used = psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2
 print(curr_used)
 
-RAM_left = 2000 - curr_used - 100
+RAM_left = max((args.ramsize - curr_used - 100,0))
 feature_size_mb = os.path.getsize(os.path.join(dataset_path, 'features.dat')) / 1024 ** 2
 cache_ratio = RAM_left / feature_size_mb
-feature_cache_size = int(num_nodes * cache_ratio)
+feature_cache_size = min((int(num_nodes * cache_ratio), num_nodes))
+print("cache size: ", RAM_left)
 print("cache ratio: ", cache_ratio)
 print("cache size: ", feature_cache_size, "/", num_nodes)
-features_cache_size = 1
+#features_cache_size = 1
 
 cache = FeatureCache(feature_cache_size, num_nodes, x, num_features, False)
 
@@ -102,13 +104,16 @@ print("sorted len: ", len(sorted_indices))
 # Fill cache with top out-degree
 indices = []
 for i in range(feature_cache_size):
-    indices.append(sorted_indices[-i])
+    indices.append(sorted_indices[i])
 
 indices = torch.tensor(indices, dtype=torch.long).cpu()
-cache.fill_cache(indices)
+
+useLRU = True
+cache.fill_cache(indices, useLRU)
 
 print(psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
 
+@torch.no_grad()
 def train(epoch):
 
     pbar = tqdm(total=int(2*num_edges_sampled))
@@ -122,12 +127,15 @@ def train(epoch):
     for step, (batch_size, ids, adjs) in enumerate(train_loader):
         # Gather
         #print(psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2)
-        batch_inputs, hits, misses = gather_ginex(features_path, ids, num_features, cache)
+        #batch_inputs, hits, misses = gather_ginex(features_path, ids, num_features, cache) #cache.lru_gather(ids)
+        batch_inputs, hits, misses = cache.lru_gather(ids)
         total_hits += hits
         total_misses += misses
 
         torch.cuda.empty_cache()
-        tensor_free(batch_inputs)
+        if not useLRU:
+            #del(batch_inputs)
+            tensor_free(batch_inputs)
         pbar.update(batch_size)
 
     pbar.close()

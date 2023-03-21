@@ -6,6 +6,7 @@ import numpy as np
 import json
 import os
 from tqdm import tqdm
+from collections import OrderedDict, defaultdict
 
 class FeatureCache:
   '''
@@ -26,22 +27,57 @@ class FeatureCache:
     self.mmapped_features = mmapped_features
     self.feature_dim = feature_dim
     self.verbose = verbose
-
-    # The address table of the cache has num_nodes entries each of which is a single
-    # int32 value. This can support the cache with up to 2147483647 entries.
-    table_size = 4 * self.num_nodes
-    self.num_entries = int((self.size-table_size)/4/self.feature_dim)
-    if self.num_entries > torch.iinfo(torch.int32).max:
-      raise ValueError
+    self.cache = OrderedDict()
     
   # Fill cache with the feature vectors corresponding to the given indices. It is called
   # when initializing the feature cache in order to reduce the cold misses.
-  def fill_cache(self, indices):
+  def fill_cache(self, indices, useLRU):
     self.address_table = torch.full((self.num_nodes,), -1, dtype=torch.int32)
     self.address_table[indices] = torch.arange(indices.numel(), dtype=torch.int32)
     orig_num_threads = torch.get_num_threads() 
     torch.set_num_threads(int(os.environ['GINEX_NUM_THREADS']))
-    self.cache = self.mmapped_features[indices].cpu()
+    if (not useLRU):
+      self.cache = self.mmapped_features[indices].cpu()
+    else:
+      for i in indices:
+        i = int(i)
+        self.cache[i] = self.mmapped_features[i].cpu()
+        self.cache.move_to_end(i)
     torch.set_num_threads(orig_num_threads)
 
   # Assume cache is LRU
+
+  def lru_gather(self, indices):
+    #out = torch.empty((indices.numel(), self.feature_dim), dtype=torch.int32)
+    out = []
+    cnt = 0
+    hits = 0
+    misses = 0
+
+    for i in indices:
+      i = int(i)
+      if (not torch.is_tensor(self.get(i))):
+        misses +=1
+        val = self.mmapped_features[i]
+        #out[cnt] = val
+        out.append(val)
+        self.put(i, val)
+      else:
+        hits += 1
+        out.append(self.cache[i])
+        #out[cnt] = self.cache[i]
+    
+    return out, hits, misses
+
+  def get(self, key: int) -> int:
+    if key not in self.cache:
+        return -1
+    else:
+        self.cache.move_to_end(key)
+        return self.cache[key]
+ 
+  def put(self, key: int, value: int) -> int:
+    self.cache[key] = value
+    self.cache.move_to_end(key)
+    if len(self.cache) > self.size:
+        self.cache.popitem(last = False)
