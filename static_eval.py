@@ -1,4 +1,4 @@
-from collections import OrderedDict, defaultdict
+from cacheImpl import *
 import os.path as osp
 import os
 import sys
@@ -7,21 +7,21 @@ from overflowDataset import OverFlowDataset
 from torch_geometric.datasets import JODIEDataset
 from tqdm import tqdm
 from neighbor_sampler import NeighborSampler
+from torch_geometric.loader import LinkNeighborLoader
 import argparse
 import scipy
 import numpy as np
 from torch_geometric.data import Data
 from torch_geometric.utils import to_undirected
 import json
-from sklearn import preprocessing
 
 
 parser = argparse.ArgumentParser('Cache testing')
 parser.add_argument('--subsetPerc', type=float, default=1, help='percentage of data to sample from')
 parser.add_argument('--CPUCachePerc', type=int, default=20, help='CPU cache percentage of data')
-# parser.add_argument('--LRUOnly', default=True, action='store_true')
-# parser.add_argument('--no-LRUOnly', dest='LRUOnly', action='store_false')
 parser.add_argument('--sizes', type=str, default='10,10')
+parser.add_argument('--staticStart', type=int, default=0)
+parser.add_argument('--staticEnd', type=int, default=80)
 parser.add_argument('--dataset', type=str, default='reddit')
 
 try:
@@ -32,6 +32,9 @@ except:
 
 metadata = {}
 sizes = [int(size) for size in args.sizes.split(',')]
+
+print("static start: ", args.staticStart)
+print("static end: ", args.staticEnd)
 
 __file__ = os.path.abspath('')
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
@@ -63,23 +66,16 @@ elif dataName == 'wiki':
     data = Data(x=data_orig.msg, edge_index=torch.stack([data_orig.src, data_orig.dst], dim=0), edge_attr=data_orig.t)
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
- 
-class LRUCache:
-    def __init__(self):
-        self.counts = {}
- 
-    def get(self, key: int) -> int:
-        if key not in self.counts:
-            self.counts[key] = 0
-        else:
-            self.counts[key] += 1
- 
 
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
 
 n1 = torch.unique(orig_edge_index[0])
 n2 = torch.unique(orig_edge_index[1])
 total_nodes = torch.unique(torch.cat((n1,n2))).numel()
+
+data.n_id = torch.arange(total_nodes)
+data.ts_n = torch.zeros(total_nodes).to(dtype=torch.long)
+data.x = data.n_id
 
 # Assume CPU cache is 20% of data
 CPUCacheNum = int(total_nodes / (100/args.CPUCachePerc))
@@ -91,17 +87,40 @@ nodes_to_sample_unique_num = torch.unique(nodes_to_sample).numel()
 metadata['uniqueNodesInEdges'] = nodes_to_sample_unique_num
 metadata['totalEdgesSampled'] = subset
 
-CPUCacheLRU  = LRUCache()
+CPUCacheStatic = LRUCache(CPUCacheNum)
 
 # We sample from end of data
-loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=nodes_to_sample, batch_size=2)
+#print("Initializing sampler")
+# loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=nodes_to_sample, batch_size=2)
+# print(orig_edge_index[0].numel()- subset)
+sample_idx = orig_edge_index[0].numel() - subset
+sampled_edges = torch.stack([orig_edge_index[0][sample_idx:], orig_edge_index[1][sample_idx:]])
+neighbor_loader = LinkNeighborLoader(data, num_neighbors=sizes, edge_label_index=sampled_edges, edge_label_time=data.edge_attr[sample_idx:], time_attr='ts_n')
 
 # Get out neighbor statistics
-coo = data.edge_index.numpy()
-print(coo.shape)
-print(total_nodes)
+# Take first 80% of data to find top out-degree neighbors
+if args.staticStart == 0:
+   sample_num_start = 0
+else:
+  sample_num_start = int(orig_edge_index[0].numel() / (100/args.staticStart))
+sample_num_end = int(orig_edge_index[0].numel() / (100/args.staticEnd))
+print("num of edges used to construct ranking: ", sample_num_end - sample_num_start)
+metadata['static_edges_used'] = sample_num_end - sample_num_start
+print("how many edges until start of sample: ", sample_idx - sample_num_end)
+metadata['edge_til_start'] = sample_idx - sample_num_end
+sampled_edges = torch.stack([orig_edge_index[0][sample_num_start:sample_num_end], orig_edge_index[1][sample_num_start:sample_num_end]])
+# print(sampled_edges)
+if (dataName != 'overflow'):
+  sampled_edges = to_undirected(sampled_edges)
+# Find number of unique nodes in 80% of data
+#n1 = torch.unique(sampled_edges[0])
+#n2 = torch.unique(sampled_edges[1])
+#total_nodes = torch.unique(torch.cat((n1,n2))).numel()
+
+coo = sampled_edges.numpy()
+#coo = data.edge_index.numpy()
 v = np.ones_like(coo[0])
-coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(total_nodes,total_nodes))
+coo = scipy.sparse.coo_matrix((v, (coo[0], coo[1])), shape=(total_nodes, total_nodes))
 csc = coo.tocsc()
 csr = coo.tocsr()
 
@@ -111,75 +130,41 @@ out_num_neighbors = csr_indptr_tensor[1:] - csr_indptr_tensor[:-1]
 in_num_neighbors = (csc_indptr_tensor[1:] - csc_indptr_tensor[:-1])
 sorted_vals_out, indices_out = torch.sort(out_num_neighbors, descending=True)
 sorted_vals_in, indices_in = torch.sort(in_num_neighbors, descending=True)
-# Here idx_out gives a mapping of node_val -> ranking
-vals, idx_out = torch.sort(indices_out)
+# print(len([i for i in list(sorted_vals_out) if int(i)!=0]))
+# print(len(sorted_vals_out))
+# print(sorted_vals_out[:20])
+# print(sorted_vals_out[len(sorted_vals_out)-10:])
 
-def calculateCoef(l1, l2):
-  #assert len(l1) == len(l2)
-  #assert len(l2) == total_nodes
-  difSum = 0
-   
-  # for i in range(len(l1)):
-  #   difSum += (l1.index(i) - l2.index(i))**2
+# Populate static cache with highest out degree nodes
+for i in range(CPUCacheNum):
+    val = int(indices_out[i])
+    CPUCacheStatic.put(val, val)
 
-  l2Reordered = [l2[i] for i in l1]
-
-  le = preprocessing.LabelEncoder()
-  le.fit(l2Reordered)
-  l2 = list(le.transform(l2Reordered))
-  
-  print(l2Reordered[:5])
-  print(l2[:5])
-  print(l2Reordered == l2)
-
-  for i in range(len(l1)):
-    difSum += (i - l2[i])**2
-    
-  return 1-(6*difSum/(len(l1) * (len(l1)**2 -1)))
-   
+def getHitRate(stats):
+    return sum(stats)/len(stats)
 
 # Run LRU and static Cache
-def run(CPUCacheLRU):
-  pbar = tqdm(total=subset*2)
-  for batch_size, ids, adjs in loader:
-    for i in ids:
-      CPUCacheLRU.get(int(i))
-    pbar.update(batch_size)
+def run(CPUCacheStatic):
+  # pbar = tqdm(total=subset*2)
+  pbar = tqdm(total=subset)
+  # for batch_size, ids, adjs in loader:
+  for data in neighbor_loader:   
+    nodes = data.n_id
+    nodes = torch.unique(nodes)
+    for i in nodes:
+      i = int(i)
+      CPUCacheStatic.get(i)
+    # pbar.update(batch_size)
+    pbar.update(1)
   pbar.close()
 
-  x = CPUCacheLRU.counts
-  sorted_x = {k: v for k, v in sorted(x.items(), key=lambda item: item[1], reverse=True)}
-  import json
-  with open(dataName + '.json', 'w') as f:
-      json.dump(sorted_x, f)
-  
-  sampledList = list(sorted_x.keys())
-  outDegList = idx_out.tolist()
+  print(getHitRate(CPUCacheStatic.stats))
+  metadata['static_hit'] = getHitRate(CPUCacheStatic.stats)
 
-  print("sampled size: ", len(sampledList))
-  print("total size: ", len(outDegList))
-
-  #coef = calculateCoef(sampledList, outDegList)
-
-  #print("Size: ", sizes, " coef of: ", coef)
-
-
-  # t1 = torch.tensor(CPUCacheLRU.stats)
-  # commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
-  # torch.save(t1, "cache_data/" + dataName + "/" + "LRU_" + commonFilePath + '.pt')
-  # t2 = torch.tensor(CPUCacheStatic.stats)
-  # torch.save(t2, "cache_data/" + dataName + "/" + "static_" + commonFilePath + '.pt')
-  # t3 = torch.tensor(CPUCacheLFU.stats)
-  # torch.save(t3, "cache_data/" + dataName + "/" + "LFU_" + commonFilePath + '.pt')
-
-  # metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
-  # metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
-  # metadata['LFUAccuracy'] = getHitRate(CPUCacheLFU.stats)
-  # if 'capacityReached' not in metadata:
-  #    metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
-
-  # with open("cache_data/" + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
-  #   json.dump(metadata, fp)
+  pathStart = './results/'
+  commonFilePath = dataName + "_statictesting_" + str(args.staticStart) + "_" + str(args.staticEnd)
+  with open(pathStart + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
+    json.dump(metadata, fp)
 
 print("Running requests...")
-run(CPUCacheLRU)
+run(CPUCacheStatic)

@@ -108,7 +108,8 @@ neighbor_loader = LinkNeighborLoader(data, num_neighbors=sizes, edge_label_index
 sample_num = orig_edge_index[0].numel() - int(orig_edge_index[0].numel() / (100/80))
 sampled_edges = torch.stack([orig_edge_index[0][:sample_num], orig_edge_index[1][:sample_num]])
 # print(sampled_edges)
-sampled_edges = to_undirected(sampled_edges)
+if (dataName != 'overflow'):
+  sampled_edges = to_undirected(sampled_edges)
 # Find number of unique nodes in 80% of data
 #n1 = torch.unique(sampled_edges[0])
 #n2 = torch.unique(sampled_edges[1])
@@ -194,7 +195,7 @@ def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC, CPUCacheLFUImprov
   if 'capacityReached' not in metadata:
      metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
 
-  with open(pathStart + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
+  with open(pathStart + dataName + "/corr_sample/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
     json.dump(metadata, fp)
 
 print("Running requests...")
