@@ -20,7 +20,10 @@ parser = argparse.ArgumentParser('Cache testing')
 parser.add_argument('--subsetPerc', type=float, default=1, help='percentage of data to sample from')
 parser.add_argument('--CPUCachePerc', type=int, default=20, help='CPU cache percentage of data')
 parser.add_argument('--sizes', type=str, default='10,10')
+parser.add_argument('--staticStart', type=int, default=0)
+parser.add_argument('--staticEnd', type=int, default=80)
 parser.add_argument('--dataset', type=str, default='reddit')
+
 
 try:
   args = parser.parse_args()
@@ -30,6 +33,9 @@ except:
 
 metadata = {}
 sizes = [int(size) for size in args.sizes.split(',')]
+
+print("static start: ", args.staticStart)
+print("static end: ", args.staticEnd)
 
 __file__ = os.path.abspath('')
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'OpenFlow')
@@ -62,10 +68,6 @@ elif dataName == 'wiki':
     orig_edge_index = data.edge_index
     data.edge_index = to_undirected(data.edge_index)
 
-# Load dictionary for LFUImproved
-with open('/mnt/raid0nvme1/zz/cache_data/' + dataName + "_new" + ".json", 'r') as f:
-  LFUFreqs = json.load(f)
-
 subset = int(orig_edge_index[0].numel() / (100/args.subsetPerc))
 
 n1 = torch.unique(orig_edge_index[0])
@@ -80,20 +82,16 @@ data.x = data.n_id
 CPUCacheNum = int(total_nodes / (100/args.CPUCachePerc))
 metadata['cacheSize'] = CPUCacheNum
 
-# Assume GPU cache is 0.25% of data
-GPUCacheNum = int(total_nodes / 200)
 node_ids = torch.flatten(orig_edge_index.t())
 nodes_to_sample = node_ids[len(node_ids) - subset*2:]
 nodes_to_sample_unique_num = torch.unique(nodes_to_sample).numel()
 metadata['uniqueNodesInEdges'] = nodes_to_sample_unique_num
 metadata['totalEdgesSampled'] = subset
 
-CPUCacheLRU  = LRUCache(CPUCacheNum)
 CPUCacheStatic = LRUCache(CPUCacheNum)
-CPUCacheLFU = LFUCache(CPUCacheNum)
-CPUCacheLFUImproved = LFUCacheImp(CPUCacheNum)
-CPUCacheARC = ARCCache(CPUCacheNum)
-GPUCache = LRUCache(GPUCacheNum)
+CPUCacheStaticClo = LRUCache(CPUCacheNum)
+CPUCacheStaticBet = LRUCache(CPUCacheNum)
+CPUCacheStaticEig = LRUCache(CPUCacheNum)
 
 # We sample from end of data
 #print("Initializing sampler")
@@ -105,8 +103,16 @@ neighbor_loader = LinkNeighborLoader(data, num_neighbors=sizes, edge_label_index
 
 # Get out neighbor statistics
 # Take first 80% of data to find top out-degree neighbors
-sample_num = orig_edge_index[0].numel() - int(orig_edge_index[0].numel() / (100/84))
-sampled_edges = torch.stack([orig_edge_index[0][:sample_num], orig_edge_index[1][:sample_num]])
+if args.staticStart == 0:
+   sample_num_start = 0
+else:
+  sample_num_start = int(orig_edge_index[0].numel() / (100/args.staticStart))
+sample_num_end = int(orig_edge_index[0].numel() / (100/args.staticEnd))
+#print("num of edges used to construct ranking: ", sample_num_end - sample_num_start)
+metadata['static_edges_used'] = sample_num_end - sample_num_start
+#print("how many edges until start of sample: ", sample_idx - sample_num_end)
+metadata['edge_til_start'] = sample_idx - sample_num_end
+sampled_edges = torch.stack([orig_edge_index[0][sample_num_start:sample_num_end], orig_edge_index[1][sample_num_start:sample_num_end]])
 # print(sampled_edges)
 if (dataName != 'overflow'):
   sampled_edges = to_undirected(sampled_edges)
@@ -128,94 +134,76 @@ out_num_neighbors = csr_indptr_tensor[1:] - csr_indptr_tensor[:-1]
 in_num_neighbors = (csc_indptr_tensor[1:] - csc_indptr_tensor[:-1])
 sorted_vals_out, indices_out = torch.sort(out_num_neighbors, descending=True)
 sorted_vals_in, indices_in = torch.sort(in_num_neighbors, descending=True)
-np.save('taobao_84.npy', indices_out)
-# print(len([i for i in list(sorted_vals_out) if int(i)!=0]))
-# print(len(sorted_vals_out))
-# print(sorted_vals_out[:20])
-# print(sorted_vals_out[len(sorted_vals_out)-10:])
+
+path = '/mnt/raid0nvme1/zz/'
+
+filename_bet = path + dataName + "_between.json"
+filename_clo = path + dataName + "_close.json"
+filename_eig = path + dataName + "_eigen.json"
+
+with open(filename_bet) as json_file:
+    data_bet = json.load(json_file)
+with open(filename_clo) as json_file:
+    data_clo = json.load(json_file)
+with open(filename_eig) as json_file:
+    data_eig = json.load(json_file)
+
+data_bet = dict(sorted(data_bet.items(), key=lambda item: item[1], reverse=True))
+data_clo = dict(sorted(data_clo.items(), key=lambda item: item[1], reverse=True))
+data_eig = dict(sorted(data_eig.items(), key=lambda item: item[1], reverse=True))
+
+indices_out_bet = [float(i) for i in list(data_bet.keys())]
+indices_out_clo = [float(i) for i in list(data_clo.keys())]
+indices_out_eig = [float(i) for i in list(data_eig.keys())]
+
 
 # Populate static cache with highest out degree nodes
 for i in range(CPUCacheNum):
-    val = int(indices_out[i])
-    CPUCacheStatic.put(val, val)
+  if (i >= len(indices_out_bet)):
+     break
+  val = int(indices_out[i])
+  CPUCacheStatic.put(val, val)
+  
+  val_bet = int(indices_out_bet[i])
+  CPUCacheStaticBet.put(val_bet, val_bet)
 
-indices_len = len(indices_out)
-indices_out = list(indices_out)
-indices_dict = {str(int(indices_out[i])): indices_len - i for i in range(len(indices_out))}
-# with open("./" + "overflow" + str(args.CPUCachePerc) + ".json", 'w') as fp:
-#     json.dump(indices_dict, fp)
+  val_clo = int(indices_out_clo[i])
+  CPUCacheStaticClo.put(val_clo, val_clo)
 
-# with open('./' + dataName + str(args.CPUCachePerc) + ".json", 'r') as f:
-#   indices_dict = json.load(f)
+  val_eig = int(indices_out_eig[i])
+  CPUCacheStaticEig.put(val_eig, val_eig)
 
 def getHitRate(stats):
     return sum(stats)/len(stats)
 
 # Run LRU and static Cache
-def run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC, CPUCacheLFUImproved):
-  numEdgeProcessed = 0
+def run(CPUCacheStatic, CPUCacheStaticBet, CPUCacheStaticClo, CPUCacheStaticEig):
   # pbar = tqdm(total=subset*2)
   pbar = tqdm(total=subset)
   # for batch_size, ids, adjs in loader:
-  for data in neighbor_loader:
-    # for i in ids:
-    
+  for data in neighbor_loader:   
     nodes = data.n_id
     nodes = torch.unique(nodes)
     for i in nodes:
       i = int(i)
       CPUCacheStatic.get(i)
-      LRUval = CPUCacheLRU.get(i)
-      LFUval = CPUCacheLFU.get(i)
-      ARCval = CPUCacheARC.get(i)
-      #LFUImpval = CPUCacheLFUImproved.get(i)
-      #if (LFUImpval == -1):
-      #   putVal = CPUCacheLFUImproved.put(i,i, LFUFreqs[str(i)])
-         #putVal = CPUCacheLFUImproved.put(i,i, indices_dict[str(i)])
-      if (LFUval == -1):
-         putVal = CPUCacheLFU.put(i,i)
-      if (ARCval == -1):
-         CPUCacheARC.put(i,i)
-      if (LRUval == -1):
-        putVal = CPUCacheLRU.put(i,i)
-        if putVal == 1:
-          metadata['capacityReached'] = numEdgeProcessed
-          #print(f"After {numEdgeProcessed} edges ({numEdgeProcessed*100/subset:.2f}%), cache capacity reached")
-    numEdgeProcessed += 1
+      CPUCacheStaticBet.get(i)
+      CPUCacheStaticClo.get(i)
+      CPUCacheStaticEig.get(i)
     # pbar.update(batch_size)
     pbar.update(1)
   pbar.close()
 
-  t1 = torch.tensor(CPUCacheLRU.stats)
-  #pathStart = '/mnt/raid0nvme1/zz/cache_data/'
+  print("static: ", getHitRate(CPUCacheStatic.stats))
+  metadata['static_hit'] = getHitRate(CPUCacheStatic.stats)
+  metadata['clo_hit'] = getHitRate(CPUCacheStaticClo.stats)
+  metadata['bet_hit'] = getHitRate(CPUCacheStaticBet.stats)
+  metadata['eig_hit'] = getHitRate(CPUCacheStaticEig.stats)
+
   pathStart = './results/'
-  commonFilePath = dataName + "_subset_" + str(args.subsetPerc) + "Cache_" + str(args.CPUCachePerc) + "Size_" + args.sizes.replace(",","_")
-  #torch.save(t1, pathStart + dataName + "/" + "LRU_" + commonFilePath + '.pt')
-  t2 = torch.tensor(CPUCacheStatic.stats)
-  #torch.save(t2, pathStart + dataName + "/" + "static_" + commonFilePath + '.pt')
-  t3 = torch.tensor(CPUCacheLFU.stats)
-  #torch.save(t3, pathStart + dataName + "/" + "LFU_" + commonFilePath + '.pt')
-  t4 = torch.tensor(CPUCacheARC.stats)
-  #torch.save(t4, pathStart + dataName + "/" + "ARC_" + commonFilePath + '.pt')
-
-  metadata['LRUAccuracy'] = getHitRate(CPUCacheLRU.stats)
-  metadata['StaticAccuracy'] = getHitRate(CPUCacheStatic.stats)
-  metadata['LFUAccuracy'] = getHitRate(CPUCacheLFU.stats)
-  metadata['ARCAccuracy'] = getHitRate(CPUCacheARC.stats)
-
-  metadata['LRU_hits'] = sum(CPUCacheLRU.stats)
-  metadata['total'] = len(CPUCacheLRU.stats)
-  metadata['Static_hits'] = sum(CPUCacheStatic.stats)
-  metadata['LFU_hits'] = sum(CPUCacheLFU.stats)
-  metadata['ARC_hits'] = sum(CPUCacheARC.stats)
-  #metadata['LFUStaticAccuracy'] = getHitRate(CPUCacheLFUImproved.stats)
-  if 'capacityReached' not in metadata:
-     metadata['capacityFurthestReached'] = len(CPUCacheLRU.stats)
-
-  #with open(pathStart + dataName + "/corr_sample/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
-  #  json.dump(metadata, fp)
-  with open(pathStart + dataName + "/compare_tgl/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
+  commonFilePath = "centrality_" + str(args.CPUCachePerc)
+  with open(pathStart + dataName + "/" +  "meta_" + commonFilePath + ".json", 'w') as fp:
     json.dump(metadata, fp)
 
 print("Running requests...")
-run(CPUCacheLRU, CPUCacheStatic, CPUCacheLFU, CPUCacheARC, CPUCacheLFUImproved)
+run(CPUCacheStatic, CPUCacheStaticBet, CPUCacheStaticClo, CPUCacheStaticEig)

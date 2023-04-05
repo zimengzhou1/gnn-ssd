@@ -1,6 +1,5 @@
 import os.path as osp
 import os
-import sys
 import torch
 from overflowDataset import OverFlowDataset
 from torch_geometric.datasets import JODIEDataset
@@ -11,27 +10,21 @@ import numpy as np
 from collections import OrderedDict
 from torch_geometric.data import Data
 from torch_geometric.utils import to_undirected
-import argparse
+from cacheImpl import *
+from torch_geometric.utils import to_networkx
+import networkx as nx
+from torch_geometric.loader import LinkNeighborLoader
+import json
 
 # Set arguments
+# Percentage of data to sample from
+subsetPerc = 3
 
+# CPU cache percentage of nodes
+CPUCachePerc = 20
 
 # Datset to use
-dataName = 'reddit' # 'overflow', 'taobao' , 'reddit', wiki'
-parser = argparse.ArgumentParser('Cache testing')
-parser.add_argument('--sizes', type=str, default='10,10')
-parser.add_argument('--dataset', type=str, default='reddit')
-
-try:
-  args = parser.parse_args()
-except:
-  parser.print_help()
-  sys.exit(0)
-
-dataName = args.dataset
-print("using datset: ", dataName)
-sizes = [int(size) for size in args.sizes.split(',')]
-print("size: ", sizes)
+dataName = 'taobao' # 'overflow', 'taobao' , 'reddit', wiki'
 
 # Load data
 __file__ = os.path.abspath('')
@@ -65,25 +58,28 @@ elif dataName == 'wiki':
 
 print(data)
 
-n1 = torch.unique(orig_edge_index[0])
-n2 = torch.unique(orig_edge_index[1])
-total_nodes = torch.unique(torch.cat((n1,n2))).numel()
 
-#loader = NeighborSampler(data.edge_index, sizes=[10,10], node_idx=nodes_to_sample, batch_size=2)
-loader = NeighborSampler(data.edge_index, sizes=sizes, node_idx=torch.unique(torch.cat((n1,n2))), batch_size=1)
+# Take first 80% of data to find top out-degree neighbors
+sample_num = int(orig_edge_index[0].numel() / (100/84))
+sampled_edges = torch.stack([orig_edge_index[0][:sample_num], orig_edge_index[1][:sample_num]])
+# print(sampled_edges)
+if (dataName != 'overflow'):
+  sampled_edges = to_undirected(sampled_edges)
 
-sample_cnt = {}
-cnt = 0
-pbar = tqdm(total=total_nodes)
-for batch_size, ids, adjs in loader:
-    sample_cnt[cnt] = len(ids)
-    cnt +=1
-    pbar.update(batch_size)
-pbar.close()
+n1 = torch.unique(sampled_edges[0])
+n2 = torch.unique(sampled_edges[1])
+total_nodes = torch.unique(torch.cat((n1,n2)))
 
-sample_cnt = {k: v for k, v in sorted(sample_cnt.items(), key=lambda item: item[1], reverse=True)}
+data = Data(x=total_nodes, edge_index=sampled_edges)
 
-import json
-path = '/mnt/raid0nvme1/zz/cache_data/'
-with open(path + dataName + "_new" + ".json", 'w') as fp:
-    json.dump(sample_cnt, fp)
+print("creating networkx...")
+G = to_networkx(data)
+
+print("closeness done!")
+eigen = nx.eigenvector_centrality_numpy(G)
+
+path = '/mnt/raid0nvme1/zz/'
+with open(path + dataName + "_eigen" + ".json", 'w') as fp:
+    json.dump(eigen, fp)
+
+

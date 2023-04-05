@@ -17,6 +17,10 @@ def script4(subsetPerc, CPUCachePerc, sizes, dataset, staticStart, staticEnd):
   os.system("python3 " + __file__ + "/static_eval.py " + " --subsetPerc " + subsetPerc + " --CPUCachePerc " + CPUCachePerc + " --sizes " + sizes + " --dataset " + dataset + " --staticStart " + staticStart + " --staticEnd " + staticEnd)
   print("done for size ", CPUCachePerc)
 
+def script5(subsetPerc, CPUCachePerc, sizes, dataset, staticStart, staticEnd):
+  os.system("python3 " + __file__ + "/centrality_static.py " + " --subsetPerc " + subsetPerc + " --CPUCachePerc " + CPUCachePerc + " --sizes " + sizes + " --dataset " + dataset + " --staticStart " + staticStart + " --staticEnd " + staticEnd)
+  print("done for size ", CPUCachePerc)
+
 def testCacheSize():
   cacheSizes = [2,5,10,20,40,60,80]
   pool = [Process(target=script1, args=[subsetPerc, str(i), sizes, dataset]) for i in cacheSizes]
@@ -63,14 +67,25 @@ def testStatic():
   for p in pool:
     p.join()
 
+def testCentrality():
+  cacheSizes = [2,5,10,20,40,60,80]
+  pool = [Process(target=script5, args=[subsetPerc, str(i), sizes, dataset, '0', '84']) for i in cacheSizes]
+
+  for p in pool:
+    p.start()
+  
+  for p in pool:
+    p.join()
+
 if __name__ == '__main__':
   __file__ = os.path.abspath('')
   print(__file__)
-  subsetPerc = str(1.0)
+  subsetPerc = str(20.0)
   CPUCachePerc = str(20)
   sizes = '10,5'
-  dataset = 'taobao'
-  #testCacheSize()
-  testStatic()
+  dataset = 'reddit'
+  testCacheSize()
+  #testStatic()
+  #testCentrality()
   #generateGraphs()
   #generateCoeff()

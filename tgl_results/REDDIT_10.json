@@ -1,0 +1,1 @@
+{"capacity_reached": 23, "LRU_hits": 2133143, "LRU_total": 7700950, "LRU_rate": 0.2769973834397055, "Static_hits": 1826729, "Static_total": 7700950, "Static_rate": 0.23720826651257312, "LFU_hits": 2503835, "LFU_total": 7700950, "LFU_rate": 0.3251332627792675, "ARC_hits": 2644422, "ARC_total": 7700950, "ARC_rate": 0.3433890623884066}
